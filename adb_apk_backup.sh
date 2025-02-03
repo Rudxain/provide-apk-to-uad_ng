@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
+set -euf -o pipefail
 
 echo "Starting if a device is connected"
-while ! adb get-state 1>/dev/null 2>&1; do
+if ! adb get-state &>/dev/null; then
   adb reconnect
-  if ! adb get-state 1>/dev/null 2>&1; then
-    (adb kill-server && adb start-server)
-  fi
   sleep 2  # Warten für 2 Sekunden, bevor erneut geprüft wird
-done
+  if ! adb get-state &>/dev/null; then
+    (adb kill-server && adb start-server)
+    adb wait-for-device
+  fi
+fi
 
 # Gerätemodell und Hersteller ermitteln
 brand=$(adb shell getprop ro.product.brand | tr -d '\r')
@@ -52,9 +54,8 @@ cd "$OUTPUT_DIR/apk"
 while IFS= read -r line
 do
   id=$(echo "$line" | awk -F'=' '{print $NF}' | tr -d '\r')
-  path=$(echo "$line" | sed "s/=$id$//")
-  echo "ID: $id"
-  echo "Path: $path"
+  path="${line%%=$id}"
+  printf '%s\n%s\n' "ID: $id" "Path: $path"
 
   if ! echo "$uad_ids" | grep -q "^$id$"; then
       echo "$id" >> "../unlisted_by_uad-ng_automatic.txt"
@@ -69,16 +70,17 @@ do
   fi
   if [ -e "$id.apk" ]; then
     echo "$id.apk already exists"
-    echo ""
+    echo
     continue  # Springt zur nächsten Zeile
   fi
-  while ! adb get-state 1>/dev/null 2>&1; do
+  if ! adb get-state &>/dev/null; then
     adb reconnect
-    if ! adb get-state 1>/dev/null 2>&1; then
-      (adb kill-server && adb start-server)
-    fi
     sleep 2  # Warten für 2 Sekunden, bevor erneut geprüft wird
-  done
+    if ! adb get-state &>/dev/null; then
+      (adb kill-server && adb start-server)
+      adb wait-for-device
+    fi
+  fi
 
   adb pull "$path" "$id".apk
   sleep 1
@@ -89,42 +91,42 @@ do
     echo "$id.apk is still missing."
     echo "$path $id.apk" >> "missing.txt"
   fi
-  echo ""
+  echo
 done < "../system_packages.txt"
 
 cd ../../
 
-zip -r "$OUTPUT_DIR - apk.zip" . -i "$OUTPUT_DIR/apk/*" 
-echo ""
+zip -r "$OUTPUT_DIR - apk.zip" . -i "$OUTPUT_DIR/apk/*"
+echo
 
 if [ -f "$OUTPUT_DIR/unlisted_by_uad-ng_automatic.txt" ]; then
   echo "Packages found which are unlisted."
   cat "$OUTPUT_DIR/unlisted_by_uad-ng_automatic.txt"
-  echo ""
+  echo
 fi
 if [ -f "$OUTPUT_DIR/share_request.txt" ]; then
   echo "Packages found which have a share request."
   cat "$OUTPUT_DIR/share_request.txt"
-  echo ""
+  echo
 fi
 if [ -f "$OUTPUT_DIR/apk/missing.txt" ]; then
   echo "Packages which cant be downloaded and are declared missing."
   cat "$OUTPUT_DIR/apk/missing.txt"
-  echo ""
+  echo
 fi
 
 if [ -f "$OUTPUT_DIR/share_request.txt" ]; then
   while IFS= read -r line
   do
-    zip -r "$OUTPUT_DIR - unlisted or share request.zip" . -i "$OUTPUT_DIR/apk/$line.apk" 
-  
+    zip -r "$OUTPUT_DIR - unlisted or share request.zip" . -i "$OUTPUT_DIR/apk/$line.apk"
+
   done < "$OUTPUT_DIR/share_request.txt"
 fi
 
 if [ -f "$OUTPUT_DIR/unlisted_by_uad-ng_automatic.txt" ]; then
   while IFS= read -r line
   do
-    zip -r "$OUTPUT_DIR - unlisted or share request.zip" . -i "$OUTPUT_DIR/apk/$line.apk" 
-  
+    zip -r "$OUTPUT_DIR - unlisted or share request.zip" . -i "$OUTPUT_DIR/apk/$line.apk"
+
   done < "$OUTPUT_DIR/unlisted_by_uad-ng_automatic.txt"
 fi
